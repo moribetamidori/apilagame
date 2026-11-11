@@ -1,0 +1,61 @@
+import XCTest
+import RealityKit
+import Metal
+import UIKit
+@testable import Apila
+
+/// TEMPORARY: exports the plain, unpainted planet (ground, ground cover, trees
+/// and rocks) for the apilagame.com three.js viewer, plus a reference render
+/// with the app's own shader. Delete after exporting.
+@MainActor
+final class LandingRenderTests: XCTestCase {
+    let out = URL(fileURLWithPath: "/private/tmp/apila-landing-renders/planet")
+
+    func testExportPlanet() async throws {
+        try FileManager.default.createDirectory(at: out, withIntermediateDirectories: true)
+        let field = PlanetField(edits: [:])
+        let cover = PlanetCoverChunks.build(field)
+        let meshes: [(String, TerrainMeshData)] = [("ground", field.mesh)]
+            + [("cover", cover.chunks.reduce(into: TerrainMeshData()) { merged, chunk in
+                let base = UInt32(merged.vertices.count)
+                merged.vertices += chunk.mesh.vertices
+                merged.indices += chunk.mesh.indices.map { $0 + base }
+            })]
+            + [("props", PlanetMeshBuilder.cachedProps)]
+
+        var blob = Data()
+        var parts: [[String: Any]] = []
+        XCTAssertEqual(MemoryLayout<TerrainVertex>.stride, 44)
+        for (name, mesh) in meshes {
+            let vertexOffset = blob.count
+            mesh.vertices.withUnsafeBytes { blob.append(contentsOf: $0) }
+            let indexOffset = blob.count
+            mesh.indices.withUnsafeBytes { blob.append(contentsOf: $0) }
+            parts.append(["name": name, "vertexOffset": vertexOffset, "vertexCount": mesh.vertices.count,
+                          "indexOffset": indexOffset, "indexCount": mesh.indices.count])
+        }
+        let sky = TerrainRGB(ApilaSkyPalette.mist(isNight: false))
+        let meta: [String: Any] = ["parts": parts, "sky": [sky.r, sky.g, sky.b],
+                                   "maximumRadius": field.maximumRadius, "fieldOfView": PlanetCamera.fieldOfView]
+        try JSONSerialization.data(withJSONObject: meta, options: [.sortedKeys]).write(to: out.appendingPathComponent("planet.json"))
+        try blob.write(to: out.appendingPathComponent("planet.raw"))
+
+        // Reference render with the app's own material.
+        guard let library = MTLCreateSystemDefaultDevice()?.makeDefaultLibrary() else { return XCTFail("no Metal") }
+        let root = Entity()
+        for (name, mesh) in meshes where !mesh.vertices.isEmpty {
+            var material = try CustomMaterial(surfaceShader: .init(named: "planetSurface", in: library),
+                                              geometryModifier: name == "cover" ? .init(named: "planetCoverSway", in: library) : nil,
+                                              lightingModel: .unlit)
+            material.faceCulling = .none
+            material.custom.value = [0, Float(sky.r), Float(sky.g), Float(sky.b)]
+            root.addChild(ModelEntity(mesh: try XCTUnwrap(try mesh.resource()), materials: [material]))
+        }
+        root.orientation = simd_quatf(angle: 0.5, axis: [1, 0, 0])
+        let camera = Entity()
+        camera.components.set(PerspectiveCameraComponent(near: 0.05, far: 20, fieldOfViewInDegrees: 36))
+        camera.look(at: .zero, from: [0, 0, 3.6], relativeTo: nil)
+        let image = try await AvatarPortrait.render(ModelSnapshotScene(root: root, camera: camera), pixels: 768)
+        try XCTUnwrap(image.pngData()).write(to: out.appendingPathComponent("reference.png"))
+    }
+}

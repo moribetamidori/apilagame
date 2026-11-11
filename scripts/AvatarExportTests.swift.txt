@@ -1,0 +1,134 @@
+import XCTest
+import simd
+import RealityKit
+@testable import Apila
+
+/// TEMPORARY: exports the six Flower Friends' meshes and skeleton for the
+/// apilagame.com three.js viewer. Delete after exporting.
+@MainActor
+final class LandingRenderTests: XCTestCase {
+    let out = URL(fileURLWithPath: "/private/tmp/apila-landing-renders/model")
+
+    static let cast: [(String, AvatarLook)] = [
+        ("apila", .sketch),
+        ("mogun", AvatarLook(items: [
+            .hair: AvatarHair.mushroomID, .buds: AvatarMushroomCap.id, .hairpin: AvatarLemonClip.id,
+            .eyes: AvatarFace.boredEyesID, .mouth: AvatarFace.frownMouthID, .scarf: AvatarVelvetScarf.id,
+            .outfit: AvatarDress.id, .pendant: AvatarMushroomCharm.id
+        ], swatches: [.hairpin: "lime", .eyes: "violet", .scarf: "plum", .outfit: "dusk"])),
+        ("ruusu", AvatarLook(items: [
+            .hair: AvatarHair.curlyID, .buds: AvatarBuds.roseID, .hairpin: AvatarLeafClip.id,
+            .eyes: AvatarFace.flowerEyesID, .mouth: AvatarFace.catMouthID, .scarf: AvatarFurStole.id,
+            .outfit: AvatarDress.id, .pendant: AvatarLocket.roseID
+        ], swatches: [.hair: "rose", .buds: "red", .hairpin: "spring", .eyes: "berry", .scarf: "rose", .outfit: "red"])),
+        ("najma", AvatarLook(items: [
+            .hair: AvatarHair.sweptID, .buds: AvatarBellflowers.id, .hairpin: AvatarCoinClip.id,
+            .eyes: AvatarFace.twinkleEyesID, .mouth: AvatarFace.catMouthID, .scarf: AvatarHoodScarf.id,
+            .outfit: AvatarDress.pleatedID, .pendant: AvatarStarCharm.id
+        ], swatches: [.hair: "oat", .buds: "blue", .hairpin: "gold", .eyes: "sapphire", .scarf: "snow", .outfit: "oat"],
+           skinTone: "caramel")),
+        ("sola", AvatarLook(items: [
+            .hair: AvatarHair.sunflowerID, .buds: AvatarSunflowerPetals.id, .hairpin: AvatarSunClip.id,
+            .eyes: AvatarFace.starryEyesID, .mouth: AvatarFace.smileMouthID, .scarf: AvatarLeafCollar.id,
+            .outfit: AvatarDress.petalID, .pendant: AvatarLocket.sunflowerID
+        ], swatches: [.hairpin: "lemon", .eyes: "lilac", .scarf: "spring", .outfit: "sunflower"])),
+        ("padma", AvatarLook(items: [
+            .hair: AvatarHair.willowID, .hairpin: AvatarMoonClip.id,
+            .eyes: AvatarFace.sleepyEyesID, .mouth: AvatarFace.dotMouthID, .scarf: AvatarCloudCollar.id,
+            .outfit: AvatarDress.id, .pendant: AvatarLocket.lotusID
+        ], swatches: [.hair: "meadow", .hairpin: "gold", .eyes: "rose", .scarf: "cloud", .outfit: "meadow"]))
+    ]
+
+    /// Appends little-endian bytes, 4-aligned.
+    struct Blob {
+        var data = Data()
+        mutating func append<T>(_ values: [T]) -> [String: Int] {
+            while data.count % 4 != 0 { data.append(0) }
+            let offset = data.count
+            values.withUnsafeBytes { data.append(contentsOf: $0) }
+            return ["offset": offset, "count": values.count]
+        }
+    }
+
+    func testRenderRuusu() async throws {
+        let folder = URL(fileURLWithPath: "/private/tmp/apila-landing-renders/cast")
+        let look = Self.cast.first { $0.0 == "ruusu" }!.1
+        let figure = AvatarFigure(look: look)
+        for _ in 0..<60 { figure.step(by: 1 / 60) }
+        let root = Entity()
+        root.addChild(figure.entity)
+        let camera = Entity()
+        camera.components.set(PerspectiveCameraComponent(near: 0.05, far: 20, fieldOfViewInDegrees: 30))
+        let target: SIMD3<Float> = [0, 0.6, 0]
+        camera.look(at: target, from: target + SIMD3(0, 0.05, 2.6), relativeTo: nil)
+        let image = try await AvatarPortrait.render(ModelSnapshotScene(root: root, camera: camera), pixels: 1024)
+        try XCTUnwrap(image.pngData()).write(to: folder.appendingPathComponent("ruusu.png"))
+    }
+
+    func testExportModels() throws {
+        try FileManager.default.createDirectory(at: out, withIntermediateDirectories: true)
+
+        // The skeleton, shared by every look.
+        let joints = AvatarJoint.allCases
+        let skeleton: [String: Any] = [
+            "names": joints.map { "\($0)" },
+            "parents": joints.map { $0.parent?.rawValue ?? -1 },
+            "restOffsets": joints.flatMap { [$0.restOffset.x, $0.restOffset.y, $0.restOffset.z] },
+            "restPositions": joints.flatMap { [$0.restPosition.x, $0.restPosition.y, $0.restPosition.z] },
+            "petalAngles": (0..<AvatarJoint.petalCount).map { AvatarJoint.petalAngle($0) },
+            "headPitch": AvatarMotion.headPitch,
+            "gazeReach": [AvatarFace.gazeReach.x, AvatarFace.gazeReach.y],
+            "restAnkleHeight": AvatarPose.rest.worldTransforms()[AvatarJoint.footL.rawValue].position.y,
+            // Iris shift (head space) for gaze across a 5×5 grid, per side, for interpolation.
+            "irisGrid": [AvatarSide.left, .right].map { side in
+                (0..<5).flatMap { gy in (0..<5).flatMap { gx -> [Float] in
+                    let o = AvatarFace.irisOffset(side, gaze: [Float(gx) / 2 - 1, Float(gy) / 2 - 1])
+                    return [o.x, o.y, o.z]
+                } }
+            }
+        ]
+        try JSONSerialization.data(withJSONObject: skeleton, options: [.sortedKeys])
+            .write(to: out.appendingPathComponent("skeleton.json"))
+
+        for (name, look) in Self.cast {
+            var blob = Blob()
+            var parts: [[String: Any]] = []
+            func add(_ key: String, role: String, _ shape: AvatarSkinnedShape?) {
+                guard let shape else { return }
+                let vs = shape.builder.vertices
+                var influences = shape.influences
+                if influences.count != vs.count { influences = Array(repeating: AvatarInfluence(.head), count: vs.count) }
+                parts.append([
+                    "key": key, "role": role, "glassStart": shape.glassStart ?? -1,
+                    "position": blob.append(vs.flatMap { [$0.px, $0.py, $0.pz] }),
+                    "normal": blob.append(vs.flatMap { [$0.nx, $0.ny, $0.nz] }),
+                    "color": blob.append(vs.map { $0.color }),
+                    "uv0": blob.append(vs.flatMap { [$0.u0, $0.v0] }),
+                    "uv1": blob.append(vs.flatMap { [$0.u1, $0.v1] }),
+                    "joints": blob.append(influences.map { UInt32($0.a.rawValue) | (UInt32($0.b.rawValue) << 8) }),
+                    "weight": blob.append(influences.map { $0.weight }),
+                    "index": blob.append(shape.builder.indices)
+                ])
+            }
+            add("body", role: "skin", AvatarBody.shape(skin: look.skin.color))
+            for slot in AvatarSlot.allCases {
+                guard let key = look.key(for: slot) else { continue }
+                guard slot == .eyes, let eyes = AvatarFace.lookingEyes(look.items[slot]) else {
+                    add(key, role: "skin", AvatarWardrobe.shape(for: slot, in: look))
+                    continue
+                }
+                let face = AvatarFace(eyes: eyes).tinted(look.swatch(in: slot))
+                var open = face
+                open.includesIrises = false
+                add(key + "/open", role: "eyesOpen", open.shape())
+                add("blink", role: "eyesClosed", AvatarFace(eyes: .blink).shape())
+                add(key + "/iris-left", role: "irisLeft", face.irisShape(.left))
+                add(key + "/iris-right", role: "irisRight", face.irisShape(.right))
+            }
+            let meta: [String: Any] = ["name": name, "armSpread": look.armSpread, "parts": parts]
+            try JSONSerialization.data(withJSONObject: meta, options: [.sortedKeys])
+                .write(to: out.appendingPathComponent("\(name).json"))
+            try blob.data.write(to: out.appendingPathComponent("\(name).bin"))
+        }
+    }
+}
