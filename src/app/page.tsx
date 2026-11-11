@@ -189,7 +189,7 @@ export default function Home() {
         <div className="wrap">
           <div className="section-head">
             <span className="kicker pixel">The collection</span>
-            <h2>Over 120 plants to discover.</h2>
+            <h2>Over 1000+ plants to discover.</h2>
             <p>Wildflowers, bulbs, orchids, mosses, mushrooms, cacti and more, each with its real botanical name.</p>
           </div>
           <div className="plant-grid">
