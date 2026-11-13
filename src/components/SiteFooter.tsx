@@ -11,6 +11,7 @@ export function SiteFooter() {
           {site.name}
         </Link>
         <nav aria-label="Footer">
+          <Link href="/wiki">Plant Wiki</Link>
           <Link href="/privacy">Privacy Policy</Link>
           <Link href="/support">Support</Link>
           <a href={`mailto:${site.email}`}>{site.email}</a>

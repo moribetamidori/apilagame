@@ -199,3 +199,75 @@ details > :not(summary) { margin-top: 0; }
 /* Keep the footer at the bottom on short pages */
 body { min-height: 100vh; min-height: 100dvh; display: flex; flex-direction: column; }
 body > main { flex: 1; }
+
+/* Plant wiki (/wiki): sticky search under the nav, category list on the left, plant cards on the right. */
+.wiki-hero .wrap, .wiki .wrap { max-width: 1240px; }
+.wiki-hero { padding-bottom: 20px; }
+.wiki-hero p { max-width: 36em; }
+.wiki-bar { position: sticky; top: 64px; z-index: 9; background: rgba(255, 248, 232, 0.92); backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px); border-bottom: 1px solid var(--line); }
+.wiki-bar .wrap { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 18px; padding-top: 12px; padding-bottom: 12px; }
+.wiki-search { position: relative; flex: 1 1 260px; min-width: 0; }
+.wiki-search svg { position: absolute; left: 14px; top: 50%; translate: 0 -50%; width: 18px; height: 18px; fill: none; stroke: var(--muted); stroke-width: 2; }
+.wiki-search input { width: 100%; font: inherit; font-size: 16px; color: var(--ink); background: var(--paper); border: 1px solid var(--line); border-radius: 999px; padding: 10px 16px 10px 40px; }
+.wiki-search input:focus { outline: none; border-color: var(--leaf); box-shadow: 0 0 0 3px var(--grass-light); }
+.wiki-toggle { display: inline-flex; align-items: center; gap: 8px; font-size: 15px; font-weight: 700; color: var(--muted); cursor: pointer; }
+.wiki-toggle input { width: 18px; height: 18px; accent-color: var(--moss); }
+.wiki-count { font-size: 22px; color: var(--soil); margin-left: auto; }
+.wiki-star { color: #D9A21B; }
+
+.wiki-layout { display: grid; grid-template-columns: 220px minmax(0, 1fr); gap: 36px; padding-top: 28px; padding-bottom: 88px; }
+.wiki-toc { position: sticky; top: 140px; align-self: start; max-height: calc(100vh - 160px); overflow-y: auto; font-size: 14px; padding-right: 4px; }
+.wiki-toc-shelf { display: block; font-weight: 900; color: var(--ink); text-decoration: none; margin: 14px 0 4px; }
+.wiki-toc > div:first-child .wiki-toc-shelf { margin-top: 0; }
+.wiki-toc ul { list-style: none; margin: 0; padding: 0; }
+.wiki-toc li a { display: flex; justify-content: space-between; gap: 8px; padding: 2px 8px; border-radius: 8px; color: var(--muted); text-decoration: none; line-height: 1.45; }
+.wiki-toc li a:hover { background: var(--grass-light); color: var(--ink); }
+.wiki-toc li span { font-family: var(--font-pixel), monospace; font-size: 17px; color: var(--leaf); }
+.wiki-chips { display: none; }
+
+.wiki-main { min-width: 0; }
+.wiki section.wiki-shelf { padding: 0; scroll-margin-top: 140px; }
+.wiki-shelf + .wiki-shelf { margin-top: 56px; }
+.wiki-shelf h2 { font-size: clamp(28px, 3.6vw, 38px); font-weight: 900; letter-spacing: -0.02em; line-height: 1.1; margin: 0 0 4px; padding-bottom: 10px; border-bottom: 3px solid var(--grass); }
+.wiki-category { scroll-margin-top: 140px; margin-top: 26px; }
+.wiki-category h3 { display: flex; align-items: baseline; gap: 10px; margin: 0 0 12px; font-size: 20px; font-weight: 800; }
+.wiki-category h3 a { color: var(--ink); text-decoration: none; }
+.wiki-category h3 a:hover { color: var(--moss); }
+.wiki-category h3 span { font-size: 22px; font-weight: 400; color: var(--soil); }
+
+.wiki-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(132px, 1fr)); gap: 12px; }
+.wiki-plant { position: relative; display: flex; flex-direction: column; align-items: center; gap: 2px; font: inherit; color: var(--ink); cursor: pointer; transition: border-color .15s, transform .15s, box-shadow .15s; }
+.wiki-plant:hover { border-color: var(--leaf); transform: translateY(-2px); box-shadow: var(--shadow); }
+.wiki-plant:focus-visible { outline: 3px solid var(--leaf); outline-offset: 2px; }
+.wiki-plant img { width: 82%; margin-bottom: 4px; }
+.wiki-plant strong { font-size: 14px; font-weight: 800; line-height: 1.25; }
+.wiki-plant em { font-size: 13px; color: var(--muted); line-height: 1.25; overflow-wrap: anywhere; }
+.wiki-plant .wiki-star { position: absolute; top: 8px; right: 10px; font-size: 14px; color: #D9A21B; }
+.wiki-empty { text-align: center; color: var(--muted); padding: 60px 0; }
+
+.wiki-dialog { border: 1px solid var(--line); border-radius: var(--radius); background: var(--paper); color: var(--ink); padding: 26px; width: min(380px, calc(100vw - 32px)); box-shadow: var(--shadow); }
+.wiki-dialog::backdrop { background: rgba(41, 56, 44, 0.4); }
+.wiki-dialog h3 { margin: 14px 0 0; font-size: 26px; font-weight: 900; line-height: 1.15; }
+.wiki-dialog .wiki-sci { margin: 2px 0 16px; font-style: italic; color: var(--muted); font-size: 18px; }
+.wiki-dialog-art { background: var(--cream); border: 1px solid var(--line); border-radius: 18px; display: grid; place-items: center; aspect-ratio: 1; }
+.wiki-dialog-art img { width: 70%; }
+.wiki-dialog dl { display: grid; grid-template-columns: auto 1fr; gap: 6px 16px; margin: 0; font-size: 15px; }
+.wiki-dialog dt { color: var(--muted); font-weight: 700; }
+.wiki-dialog dd { margin: 0; }
+.wiki-close { position: absolute; top: 12px; right: 14px; border: 0; background: none; font-size: 28px; line-height: 1; color: var(--muted); cursor: pointer; }
+.wiki-close:hover { color: var(--ink); }
+
+@media (max-width: 860px) {
+  .wiki-layout { grid-template-columns: minmax(0, 1fr); padding-top: 16px; }
+  .wiki-toc { display: none; }
+  .wiki-chips { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 20px; }
+  .wiki-chips a { font-size: 14px; font-weight: 700; text-decoration: none; color: var(--moss); background: var(--paper); border: 1px solid var(--line); border-radius: 999px; padding: 5px 12px; }
+  .wiki-count { margin-left: 0; }
+  .wiki section.wiki-shelf, .wiki-category { scroll-margin-top: 190px; }
+}
+@media (max-width: 560px) {
+  .wiki-grid { grid-template-columns: repeat(auto-fill, minmax(104px, 1fr)); gap: 8px; }
+  .wiki-plant strong { font-size: 13px; }
+  .wiki-plant em { font-size: 12px; }
+}
+@media (prefers-reduced-motion: reduce) { .wiki-plant { transition: none; } }
