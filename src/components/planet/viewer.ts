@@ -2,14 +2,15 @@
 // unpainted), exported from the app (scripts/AvatarExportTests.swift.txt,
 // testExportPlanet; packed by scripts/pack-planet.py) and drawn with a port
 // of PlanetShaders.metal: planetSurface, with planetCoverSway bending the grass.
-// It turns slowly by itself; drag to spin it any way. Plants (flora.ts) sprout
-// over its land from a spot facing you, fill it, then wither away, in a loop.
+// It turns slowly by itself; drag to spin it any way. The app's own plants
+// and trees (flora.ts) sprout over its land from a spot facing you, fill it,
+// then wither away, in a loop.
 
 import {
-  BufferAttribute, BufferGeometry, Color, DoubleSide, Group, Mesh, PerspectiveCamera, Quaternion, Scene,
-  ShaderMaterial, SRGBColorSpace, Vector3, WebGLRenderer,
+  BufferAttribute, BufferGeometry, Color, DoubleSide, Group, InstancedBufferAttribute, InstancedMesh, Mesh,
+  PerspectiveCamera, Quaternion, Scene, ShaderMaterial, SRGBColorSpace, Vector3, WebGLRenderer,
 } from "three";
-import { buildFlora } from "./flora";
+import { placeFlora, plantGeometry, tallestPlant, type PlantsMeta } from "./flora";
 
 type Chunk = { mesh: "ground" | "cover" | "props"; vertexOffset: number; vertexCount: number; indexOffset: number; indexCount: number };
 type PlanetMeta = { chunks: Chunk[]; sky: [number, number, number]; maximumRadius: number; fieldOfView: number; positionScale: number };
@@ -32,6 +33,20 @@ const noise = /* glsl */ `
   }
   float pFbm(vec3 p) {
     return pNoise(p) * 0.55 + pNoise(p * 2.13 + 5.1) * 0.3 + pNoise(p * 4.7 + 1.7) * 0.15;
+  }
+`;
+
+const toneCurve = /* glsl */ `
+  // RealityKit tone-maps the planet's colours on the phone (the avatar's
+  // shader undoes it; the planet's doesn't), so the same curve here makes the
+  // planet look as it does in the app. Linear in, linear out.
+  float tone(float x) {
+    float xin[13] = float[13](0.0, 0.02, 0.05, 0.1, 0.2, 0.3, 0.45, 0.6, 0.8, 1.0, 1.3, 1.7, 2.2);
+    float xout[13] = float[13](0.0, 0.0085, 0.028, 0.067, 0.145, 0.223, 0.337, 0.44, 0.552, 0.665, 0.79, 0.93, 1.0);
+    for (int i = 1; i < 13; i++) {
+      if (x <= xin[i]) return mix(xout[i - 1], xout[i], (x - xin[i - 1]) / (xin[i] - xin[i - 1]));
+    }
+    return 1.0;
   }
 `;
 
@@ -74,44 +89,62 @@ const vertexShader = /* glsl */ `
   }
 `;
 
-// The plants: each grows out of its foot (aAnchor) with a little overshoot,
-// spreading outward from uSeed, then shrinks back in the same order.
-const floraVertexShader = /* glsl */ `
+// The plants, instanced: each grows out of its foot with a little overshoot,
+// spreading outward from uSeed, then shrinks back in the same order. They sway
+// as in the app (plantSway in PlantShaders.metal), more the higher up.
+const plantVertexShader = /* glsl */ `
   uniform float uTime;
   uniform float uSway;
   uniform float uCycle;
   uniform vec3 uSeed;
   attribute vec3 aColor;
-  attribute vec3 aAnchor;
-  attribute vec4 aPlant;  // seed, part delay, height along plant, plant height
+  attribute float aPlantSeed;
   varying vec3 vColor;
-  varying vec3 vModel;
   varying vec3 vNormal;
   varying vec3 vWorld;
-  varying vec2 vWaterLava;
 
   void main() {
-    vec3 up = normalize(aAnchor);
-    float spread = (1.0 - dot(up, uSeed)) * 0.5;
-    float birth = spread * 0.32 + aPlant.x * 0.06 + aPlant.y * 0.05;
-    float death = 0.6 + spread * 0.28 + aPlant.x * 0.05;
-    float k = clamp((uCycle - birth) / 0.05, 0.0, 1.0) - 1.0;
+    vec3 foot = (instanceMatrix * vec4(0.0, 0.0, 0.0, 1.0)).xyz;
+    float spread = (1.0 - dot(normalize(foot), uSeed)) * 0.5;
+    float birth = spread * 0.32 + aPlantSeed * 0.06;
+    float death = 0.6 + spread * 0.28 + aPlantSeed * 0.05;
+    float k = clamp((uCycle - birth) / 0.06, 0.0, 1.0) - 1.0;
     float grow = 1.0 + 2.70158 * k * k * k + 1.70158 * k * k;  // ease out, back
     grow *= 1.0 - smoothstep(0.0, 0.05, uCycle - death);
-    vec3 p = aAnchor + (position - aAnchor) * grow;
 
-    vec3 axis = abs(up.y) < 0.95 ? vec3(0.2, 1.0, 0.35) : vec3(1.0, 0.0, 0.0);
-    vec3 wind = normalize(cross(normalize(axis), up));
-    float h = aPlant.z * aPlant.z * aPlant.w * grow * uSway;
-    p += wind * h * (0.05 + 0.04 * sin(uTime * 1.6 + aPlant.x * 6.28 + dot(aAnchor, wind) * 12.0));
+    vec3 p = position;
+    float t = uTime * uSway, phase = aPlantSeed * 40.0;
+    float bend = max(p.y, 0.0) * max(p.y, 0.0);
+    p += vec3(sin(t * 1.1 + phase * 0.3) * 0.022 + sin(t * 2.3 + phase) * 0.006, 0.0,
+              cos(t * 0.9 + phase * 0.5) * 0.014) * bend;
+    p *= grow;
 
-    vModel = p;
-    vec4 world = modelMatrix * vec4(p, 1.0);
+    vec4 world = modelMatrix * instanceMatrix * vec4(p, 1.0);
     vWorld = world.xyz;
-    vNormal = normalize(mat3(modelMatrix) * normal);
+    vNormal = normalize(mat3(modelMatrix) * mat3(instanceMatrix) * normal);
     vColor = aColor;
-    vWaterLava = vec2(0.0);
     gl_Position = projectionMatrix * viewMatrix * world;
+  }
+`;
+
+// plantSurface's light: a soft wrap from the lamp and a warm rim.
+const plantFragmentShader = /* glsl */ `
+  varying vec3 vColor;
+  varying vec3 vNormal;
+  varying vec3 vWorld;
+  ${toneCurve}
+
+  void main() {
+    vec3 n = normalize(vNormal);
+    vec3 view = normalize(cameraPosition - vWorld);
+    if (dot(n, view) < 0.0) n = -n;
+    vec3 warmWhite = vec3(1.0, 0.976, 0.89);
+    float diffuse = max(dot(n, normalize(vec3(-0.45, 0.8, 0.4))), 0.0);
+    float rim = pow(1.0 - max(dot(n, view), 0.0), 3.0);
+    vec3 lit = vColor * (0.84 + 0.26 * diffuse) + rim * 0.12 * warmWhite;
+    vec3 linear = pow(clamp(lit, 0.0, 1.0), vec3(2.2));
+    vec3 shown = vec3(tone(linear.r), tone(linear.g), tone(linear.b));
+    gl_FragColor = vec4(pow(shown, vec3(1.0 / 2.2)), 1.0);
   }
 `;
 
@@ -125,17 +158,7 @@ const fragmentShader = /* glsl */ `
   varying vec2 vWaterLava;
   ${noise}
 
-  // RealityKit tone-maps the planet's colours on the phone (the avatar's
-  // shader undoes it; the planet's doesn't), so the same curve here makes the
-  // planet look as it does in the app. Linear in, linear out.
-  float tone(float x) {
-    float xin[13] = float[13](0.0, 0.02, 0.05, 0.1, 0.2, 0.3, 0.45, 0.6, 0.8, 1.0, 1.3, 1.7, 2.2);
-    float xout[13] = float[13](0.0, 0.0085, 0.028, 0.067, 0.145, 0.223, 0.337, 0.44, 0.552, 0.665, 0.79, 0.93, 1.0);
-    for (int i = 1; i < 13; i++) {
-      if (x <= xin[i]) return mix(xout[i - 1], xout[i], (x - xin[i - 1]) / (xin[i] - xin[i - 1]));
-    }
-    return 1.0;
-  }
+  ${toneCurve}
 
   void main() {
     vec3 mp = vModel;
@@ -213,9 +236,11 @@ function geometry(buffer: ArrayBuffer, chunk: Chunk, scale: number): BufferGeome
 export type PlanetViewer = { dispose: () => void };
 
 export async function createPlanetViewer({ canvas, onReady }: { canvas: HTMLCanvasElement; onReady?: () => void }): Promise<PlanetViewer> {
-  const [meta, buffer] = await Promise.all([
+  const [meta, buffer, plantsMeta, plantsBuffer] = await Promise.all([
     fetch("/models/planet.json").then((r) => r.json() as Promise<PlanetMeta>),
     fetchBytes("/models/planet.bin"),
+    fetch("/models/plants.json").then((r) => r.json() as Promise<PlantsMeta>),
+    fetchBytes("/models/plants.bin"),
   ]);
   const renderer = new WebGLRenderer({ canvas, alpha: true, antialias: true, powerPreference: "low-power" });
   renderer.outputColorSpace = SRGBColorSpace;
@@ -236,8 +261,24 @@ export async function createPlanetViewer({ canvas, onReady }: { canvas: HTMLCanv
     planet.add(new Mesh(g, material));
   }
   const flora = { uCycle: { value: 0 }, uSeed: { value: new Vector3(0, 0, 1) } };
-  const floraMaterial = new ShaderMaterial({ vertexShader: floraVertexShader, fragmentShader, uniforms: { ...uniforms, ...flora } });
-  if (ground) planet.add(new Mesh(buildFlora(ground), floraMaterial));
+  const floraMaterial = new ShaderMaterial({
+    vertexShader: plantVertexShader, fragmentShader: plantFragmentShader, uniforms: { ...uniforms, ...flora }, side: DoubleSide,
+  });
+  if (ground) {
+    const spots = placeFlora(ground, plantsMeta);
+    for (const model of plantsMeta.models) {
+      const at = spots.get(model.name);
+      if (!at) continue;
+      const g = plantGeometry(plantsBuffer, model, plantsMeta.positionScale);
+      g.setAttribute("aPlantSeed", new InstancedBufferAttribute(new Float32Array(at.seeds), 1));
+      const mesh = new InstancedMesh(g, floraMaterial, at.matrices.length);
+      at.matrices.forEach((m, i) => mesh.setMatrixAt(i, m));
+      mesh.frustumCulled = false;
+      planet.add(mesh);
+    }
+  }
+  // Everything, plants and all, fits in this: the camera stands back far enough to see it whole.
+  const reach = meta.maximumRadius + tallestPlant(plantsMeta);
 
   // Turned so the shores show, tipped a little toward the viewer, as in the app.
   const orientation = new Quaternion().setFromAxisAngle(new Vector3(1, 0, 0), 0.5);
@@ -258,6 +299,8 @@ export async function createPlanetViewer({ canvas, onReady }: { canvas: HTMLCanv
     // Keep the whole ball in view in a narrow box too.
     camera.fov = w >= h ? meta.fieldOfView : (2 * Math.atan(Math.tan((meta.fieldOfView * Math.PI) / 360) * (h / w)) * 180) / Math.PI;
     camera.updateProjectionMatrix();
+    // The narrower of the two view angles is meta.fieldOfView: back off till a ball of `reach` fits in it, with a little air.
+    camera.position.set(0, 0, (reach * 1.03) / Math.sin((meta.fieldOfView * Math.PI) / 360));
   }
   const resizeObserver = new ResizeObserver(resize);
   resizeObserver.observe(canvas);

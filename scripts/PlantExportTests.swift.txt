@@ -1,0 +1,49 @@
+import XCTest
+@testable import Apila
+
+/// TEMPORARY: exports the meshes of a handful of the app's own plants and
+/// friendship trees (PlantBuilder, exactly as PlantModels builds them) for
+/// the apilagame.com planet. Delete after exporting.
+///
+/// plants.raw: each model's PlantVertex array (60 bytes each) then its UInt32
+/// indices; plants.json: where each model is in it, and its displayScale.
+@MainActor
+final class LandingRenderTests: XCTestCase {
+    let out = URL(fileURLWithPath: "/private/tmp/apila-landing-renders/plants")
+
+    /// Model names: tree models, and species image names (Design/Species/catalog.json).
+    static let models = [
+        "sakura-tree", "jacaranda-tree", "maple-tree", "ginkgo-tree", "silk-tree", "kapok-tree", "willow-tree",
+        "bodhi-tree", "trumpet-tree", "sakura-young", "maple-young", "jacaranda-young",
+        "Tulip--Tulipa-spp.", "California-Poppy--Eschscholzia-californica", "Common-Foxglove--Digitalis-purpurea",
+        "Cornflower--Centaurea-cyanus", "Common-Daisy--Bellis-perennis", "Sunflower--Helianthus-annuus",
+        "English-Lavender--Lavandula-angustifolia", "Bearded-Iris--Iris-germanica",
+        "Cosmos--Cosmos-bipinnatus", "Zinnia--Zinnia-elegans", "English-Bluebell--Hyacinthoides-non-scripta",
+        "Purple-Shamrock--Oxalis-triangularis", "Fly-Agaric--Amanita-muscaria", "Bigleaf-Hydrangea--Hydrangea-macrophylla",
+        "Bunny-Ears--Opuntia-microdasys", "Beavertail--Opuntia-basilaris", "Indian-Fig--Opuntia-ficus-indica",
+        "Santa-Rita-Prickly-Pear--Opuntia-santa-rita", "Golden-Barrel--Kroenleinia-grusonii", "Saguaro--Carnegiea-gigantea",
+        "Moon-Cactus--Gymnocalycium-mihanovichii", "Century-Plant--Agave-americana", "Echeveria--Echeveria-spp.",
+    ]
+
+    func testExportPlants() throws {
+        try FileManager.default.createDirectory(at: out, withIntermediateDirectories: true)
+        XCTAssertEqual(MemoryLayout<PlantVertex>.stride, 60)
+        var blob = Data()
+        var parts: [[String: Any]] = []
+        for name in Self.models {
+            let recipe = try XCTUnwrap(Plant3DCatalog.recipe(for: name), "no recipe for \(name)")
+            var builder = PlantBuilder(seed: name.unicodeScalars.reduce(7) { ($0 &* 31 &+ Int($1.value)) & 0xFFFFFF })
+            recipe(&builder)
+            let vertexOffset = blob.count
+            builder.vertices.withUnsafeBytes { blob.append(contentsOf: $0) }
+            let indexOffset = blob.count
+            builder.indices.withUnsafeBytes { blob.append(contentsOf: $0) }
+            parts.append(["name": name, "vertexOffset": vertexOffset, "vertexCount": builder.vertices.count,
+                          "indexOffset": indexOffset, "indexCount": builder.indices.count,
+                          "displayScale": Plant3DCatalog.displayScale(for: name)])
+        }
+        try JSONSerialization.data(withJSONObject: ["parts": parts], options: [.sortedKeys])
+            .write(to: out.appendingPathComponent("plants.json"))
+        try blob.write(to: out.appendingPathComponent("plants.raw"))
+    }
+}
