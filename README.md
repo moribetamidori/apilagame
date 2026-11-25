@@ -7,6 +7,7 @@ Landing page, privacy policy and support page for **Apila: Flower Friends**, bui
 | `/` | `src/app/page.tsx` |
 | `/privacy` | `src/app/privacy/page.tsx` |
 | `/support` | `src/app/support/page.tsx` |
+| `/terms` | `src/app/terms/page.tsx` |
 
 Shared details (owner, contact email, site URL) are in `src/lib/site.ts`. Images are in `public/assets`, copied from the app's asset catalog.
 
@@ -16,7 +17,7 @@ npm run dev     # http://localhost:3000
 npm run build
 ```
 
-The privacy policy mirrors `Design/AppStore/privacy-policy.md` in the Apila app repo. When you change one, update the other and bump `LAST_UPDATED` in the privacy page.
+The privacy policy mirrors `Design/AppStore/privacy-policy.md` in the Apila app repo. When you change one, update the other and bump `LAST_UPDATED` in the privacy page. The same goes for `Design/AppStore/terms.md` and the terms page.
 
 ## Deploy
 

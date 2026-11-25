@@ -31,7 +31,7 @@ def small_icon(icon_path):
     cached = CACHE / (Path(icon_path).stem + ".webp")
     if cached.exists():
         return cached.read_bytes()
-    with urllib.request.urlopen(ICON_BASE + icon_path, timeout=60) as response:
+    with urllib.request.urlopen(urllib.request.Request(ICON_BASE + icon_path, headers={"User-Agent": "curl/8"}), timeout=60) as response:
         image = Image.open(io.BytesIO(response.read())).convert("RGBA")
     box = image.getchannel("A").point(lambda a: 255 if a > 8 else 0).getbbox()
     if box:

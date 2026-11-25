@@ -46,7 +46,7 @@ const faqs: { q: string; a: ReactNode }[] = [
     a: (
       <p>
         Go to <strong>Friends → ⚙︎ Settings → Delete account</strong>. This permanently deletes your account, planet,
-        journal, photos, trees and friendships. It can&apos;t be undone. Trees your friends planted stay with them.
+        journal, album, photos, letters, Friend Cards, step claims, trees and friendships. It can&apos;t be undone. Trees your friends planted stay with them.
       </p>
     ),
   },
@@ -54,8 +54,10 @@ const faqs: { q: string; a: ReactNode }[] = [
     q: "Does Apila track my location or health data?",
     a: (
       <p>
-        No. Your walk routes, location and step count from Apple Health stay on your phone and are never sent to us. See
-        the <Link href="/privacy">privacy policy</Link> for details.
+        Apila never collects or tracks your location. If you connect Apple Health, Apila reads your daily step count,
+        and only the daily step totals you claim are sent to us, to award four-leaf clovers and stop the same day being
+        claimed twice. We never sell or share Health data, or use it for ads. See the{" "}
+        <Link href="/privacy">privacy policy</Link> for details.
       </p>
     ),
   },

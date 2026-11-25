@@ -81,7 +81,7 @@ const cast = [
 
 const privacyPoints = [
   ["No ads, no tracking, no selling data.", "We only use your data to run Apila."],
-  ["Walks and steps stay on your phone.", "Your location, routes and Apple Health data are never sent to us."],
+  ["Your location is never collected.", "Apple Health is optional, and only the step totals you claim are sent, just to award clovers."],
   ["Your voice is never recorded.", "In duet games it goes live to your friend and nowhere else."],
   ["Delete everything, anytime.", "Settings → Delete account removes your account and garden for good."],
 ];
