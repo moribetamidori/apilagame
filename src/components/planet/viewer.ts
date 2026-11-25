@@ -2,12 +2,14 @@
 // unpainted), exported from the app (scripts/AvatarExportTests.swift.txt,
 // testExportPlanet; packed by scripts/pack-planet.py) and drawn with a port
 // of PlanetShaders.metal: planetSurface, with planetCoverSway bending the grass.
-// It turns slowly by itself; drag to spin it any way.
+// It turns slowly by itself; drag to spin it any way. Plants (flora.ts) sprout
+// over its land from a spot facing you, fill it, then wither away, in a loop.
 
 import {
   BufferAttribute, BufferGeometry, Color, DoubleSide, Group, Mesh, PerspectiveCamera, Quaternion, Scene,
   ShaderMaterial, SRGBColorSpace, Vector3, WebGLRenderer,
 } from "three";
+import { buildFlora } from "./flora";
 
 type Chunk = { mesh: "ground" | "cover" | "props"; vertexOffset: number; vertexCount: number; indexOffset: number; indexCount: number };
 type PlanetMeta = { chunks: Chunk[]; sky: [number, number, number]; maximumRadius: number; fieldOfView: number; positionScale: number };
@@ -68,6 +70,47 @@ const vertexShader = /* glsl */ `
     vNormal = normalize(mat3(modelMatrix) * normal);
     vColor = aColor.rgb;
     vWaterLava = aAttr.xy;
+    gl_Position = projectionMatrix * viewMatrix * world;
+  }
+`;
+
+// The plants: each grows out of its foot (aAnchor) with a little overshoot,
+// spreading outward from uSeed, then shrinks back in the same order.
+const floraVertexShader = /* glsl */ `
+  uniform float uTime;
+  uniform float uSway;
+  uniform float uCycle;
+  uniform vec3 uSeed;
+  attribute vec3 aColor;
+  attribute vec3 aAnchor;
+  attribute vec4 aPlant;  // seed, part delay, height along plant, plant height
+  varying vec3 vColor;
+  varying vec3 vModel;
+  varying vec3 vNormal;
+  varying vec3 vWorld;
+  varying vec2 vWaterLava;
+
+  void main() {
+    vec3 up = normalize(aAnchor);
+    float spread = (1.0 - dot(up, uSeed)) * 0.5;
+    float birth = spread * 0.32 + aPlant.x * 0.06 + aPlant.y * 0.05;
+    float death = 0.6 + spread * 0.28 + aPlant.x * 0.05;
+    float k = clamp((uCycle - birth) / 0.05, 0.0, 1.0) - 1.0;
+    float grow = 1.0 + 2.70158 * k * k * k + 1.70158 * k * k;  // ease out, back
+    grow *= 1.0 - smoothstep(0.0, 0.05, uCycle - death);
+    vec3 p = aAnchor + (position - aAnchor) * grow;
+
+    vec3 axis = abs(up.y) < 0.95 ? vec3(0.2, 1.0, 0.35) : vec3(1.0, 0.0, 0.0);
+    vec3 wind = normalize(cross(normalize(axis), up));
+    float h = aPlant.z * aPlant.z * aPlant.w * grow * uSway;
+    p += wind * h * (0.05 + 0.04 * sin(uTime * 1.6 + aPlant.x * 6.28 + dot(aAnchor, wind) * 12.0));
+
+    vModel = p;
+    vec4 world = modelMatrix * vec4(p, 1.0);
+    vWorld = world.xyz;
+    vNormal = normalize(mat3(modelMatrix) * normal);
+    vColor = aColor;
+    vWaterLava = vec2(0.0);
     gl_Position = projectionMatrix * viewMatrix * world;
   }
 `;
@@ -186,13 +229,25 @@ export async function createPlanetViewer({ canvas, onReady }: { canvas: HTMLCanv
   const material = new ShaderMaterial({ vertexShader, fragmentShader, uniforms, side: DoubleSide });
   const planet = new Group();
   scene.add(planet);
-  for (const chunk of meta.chunks) planet.add(new Mesh(geometry(buffer, chunk, meta.positionScale), material));
+  let ground: BufferGeometry | undefined;
+  for (const chunk of meta.chunks) {
+    const g = geometry(buffer, chunk, meta.positionScale);
+    if (chunk.mesh === "ground") ground = g;
+    planet.add(new Mesh(g, material));
+  }
+  const flora = { uCycle: { value: 0 }, uSeed: { value: new Vector3(0, 0, 1) } };
+  const floraMaterial = new ShaderMaterial({ vertexShader: floraVertexShader, fragmentShader, uniforms: { ...uniforms, ...flora } });
+  if (ground) planet.add(new Mesh(buildFlora(ground), floraMaterial));
 
   // Turned so the shores show, tipped a little toward the viewer, as in the app.
   const orientation = new Quaternion().setFromAxisAngle(new Vector3(1, 0, 0), 0.5);
   const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
   const drift = reduceMotion ? 0 : 0.12;
   if (reduceMotion) uniforms.uSway.value = 0;
+  // Sprout from the spot facing the viewer each time round.
+  const CYCLE = 30;
+  const reseed = () => flora.uSeed.value.set(0, 0.25, 1).normalize().applyQuaternion(orientation.clone().invert());
+  reseed();
 
   function resize() {
     const { clientWidth: w, clientHeight: h } = canvas;
@@ -258,6 +313,12 @@ export async function createPlanetViewer({ canvas, onReady }: { canvas: HTMLCanv
     lastTime = now;
     if (!reduceMotion) time += seconds;
     uniforms.uTime.value = time;
+    if (reduceMotion) flora.uCycle.value = 0.55;
+    else {
+      const cycle = (time / CYCLE) % 1;
+      if (cycle < flora.uCycle.value) reseed();
+      flora.uCycle.value = cycle;
+    }
     if (!dragging) {
       turnBy(spin.x * seconds, spin.y * seconds);
       spin.multiplyScalar(Math.pow(0.05, seconds));
@@ -293,6 +354,7 @@ export async function createPlanetViewer({ canvas, onReady }: { canvas: HTMLCanv
       document.removeEventListener("visibilitychange", onVisibility);
       planet.traverse((o) => (o as Mesh).geometry?.dispose());
       material.dispose();
+      floraMaterial.dispose();
       renderer.dispose();
     },
   };
