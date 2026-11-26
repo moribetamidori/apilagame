@@ -23,11 +23,11 @@ const onSand = /Opuntia|Kroenleinia|Carnegiea|Gymnocalycium|Agave|Echeveria/;
 const isTree = (m: PlantModel) => m.name.endsWith("-tree") || m.name.endsWith("-young");
 
 /**
- * How big a model is drawn, before a little random variety. Trees keep the
- * app's proportions; flowers and cacti are drawn larger than beside a tree
- * in the app, or from this far out they'd be specks.
+ * How big a model is drawn, before a little random variety. Everything is
+ * drawn larger than in the app's proportions, or from this far out the
+ * flowers and cacti would be specks; trees a little less so.
  */
-const sizeOf = (m: PlantModel) => PLANT_SCALE * m.displayScale * (isTree(m) ? 1 : onSand.test(m.name) ? 1.4 : 1.6);
+const sizeOf = (m: PlantModel) => PLANT_SCALE * m.displayScale * (isTree(m) ? 1.5 : onSand.test(m.name) ? 1.4 : 1.6);
 
 /** The tallest anything stands above the ground, in planet units, for framing the camera. */
 export function tallestPlant(meta: PlantsMeta) {
@@ -85,8 +85,8 @@ export function placeFlora(ground: BufferGeometry, meta: PlantsMeta): Map<string
   const flowers = pick((m) => !trees.includes(m) && !young.includes(m) && !sand.includes(m));
   // Biggest first, so the trees find room before the flowers fill in round them.
   const groups: Group[] = [
-    { ground: "meadow", count: 40, spacing: 0.1, models: trees },
-    { ground: "meadow", count: 26, spacing: 0.07, models: young },
+    { ground: "meadow", count: 34, spacing: 0.14, models: trees },
+    { ground: "meadow", count: 22, spacing: 0.1, models: young },
     { ground: "sand", count: 50, spacing: 0.04, models: sand },
     { ground: "meadow", count: 420, spacing: 0.028, models: flowers },
   ];
