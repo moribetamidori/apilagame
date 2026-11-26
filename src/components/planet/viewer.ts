@@ -2,15 +2,16 @@
 // unpainted), exported from the app (scripts/AvatarExportTests.swift.txt,
 // testExportPlanet; packed by scripts/pack-planet.py) and drawn with a port
 // of PlanetShaders.metal: planetSurface, with planetCoverSway bending the grass.
-// It turns slowly by itself; drag to spin it any way. The app's own plants
-// and trees (flora.ts) sprout over its land from a spot facing you, fill it,
-// then wither away, in a loop.
+// The app's own plants and trees (flora.ts) make one garden on it, kept on
+// top and tipped toward you as it turns slowly about the garden; drag sideways
+// to spin it, up or down to tip it (it settles back). The garden sprouts from
+// its middle outward, fills, then withers away, in a loop.
 
 import {
   BufferAttribute, BufferGeometry, Color, DoubleSide, Group, InstancedBufferAttribute, InstancedMesh, Mesh,
   PerspectiveCamera, Quaternion, Scene, ShaderMaterial, SRGBColorSpace, Vector3, WebGLRenderer,
 } from "three";
-import { placeFlora, plantGeometry, tallestPlant, type PlantsMeta } from "./flora";
+import { placeFlora, plantGeometry, type PlantsMeta } from "./flora";
 
 type Chunk = { mesh: "ground" | "cover" | "props"; vertexOffset: number; vertexCount: number; indexOffset: number; indexCount: number };
 type PlanetMeta = { chunks: Chunk[]; sky: [number, number, number]; maximumRadius: number; fieldOfView: number; positionScale: number };
@@ -105,9 +106,9 @@ const plantVertexShader = /* glsl */ `
 
   void main() {
     vec3 foot = (instanceMatrix * vec4(0.0, 0.0, 0.0, 1.0)).xyz;
-    float spread = (1.0 - dot(normalize(foot), uSeed)) * 0.5;
-    float birth = spread * 0.32 + aPlantSeed * 0.06;
-    float death = 0.6 + spread * 0.28 + aPlantSeed * 0.05;
+    float spread = clamp(acos(clamp(dot(normalize(foot), uSeed), -1.0, 1.0)) / 1.3, 0.0, 1.0);
+    float birth = spread * 0.3 + aPlantSeed * 0.06;
+    float death = 0.62 + spread * 0.24 + aPlantSeed * 0.05;
     float k = clamp((uCycle - birth) / 0.06, 0.0, 1.0) - 1.0;
     float grow = 1.0 + 2.70158 * k * k * k + 1.70158 * k * k;  // ease out, back
     grow *= 1.0 - smoothstep(0.0, 0.05, uCycle - death);
@@ -264,31 +265,44 @@ export async function createPlanetViewer({ canvas, onReady }: { canvas: HTMLCanv
   const floraMaterial = new ShaderMaterial({
     vertexShader: plantVertexShader, fragmentShader: plantFragmentShader, uniforms: { ...uniforms, ...flora }, side: DoubleSide,
   });
-  if (ground) {
-    const spots = placeFlora(ground, plantsMeta);
-    for (const model of plantsMeta.models) {
-      const at = spots.get(model.name);
-      if (!at) continue;
-      const g = plantGeometry(plantsBuffer, model, plantsMeta.positionScale);
-      g.setAttribute("aPlantSeed", new InstancedBufferAttribute(new Float32Array(at.seeds), 1));
-      const mesh = new InstancedMesh(g, floraMaterial, at.matrices.length);
-      at.matrices.forEach((m, i) => mesh.setMatrixAt(i, m));
-      mesh.frustumCulled = false;
-      planet.add(mesh);
-    }
+  const garden = ground ? placeFlora(ground, plantsMeta) : undefined;
+  for (const model of plantsMeta.models) {
+    const at = garden?.spots.get(model.name);
+    if (!at) continue;
+    const g = plantGeometry(plantsBuffer, model, plantsMeta.positionScale);
+    g.setAttribute("aPlantSeed", new InstancedBufferAttribute(new Float32Array(at.seeds), 1));
+    const mesh = new InstancedMesh(g, floraMaterial, at.matrices.length);
+    at.matrices.forEach((m, i) => mesh.setMatrixAt(i, m));
+    mesh.frustumCulled = false;
+    planet.add(mesh);
   }
-  // Everything, plants and all, fits in this: the camera stands back far enough to see it whole.
-  const reach = meta.maximumRadius + tallestPlant(plantsMeta);
+  const center = garden?.center ?? new Vector3(0, 1, 0);
+  flora.uSeed.value.copy(center);
 
-  // Turned so the shores show, tipped a little toward the viewer, as in the app.
-  const orientation = new Quaternion().setFromAxisAngle(new Vector3(1, 0, 0), 0.5);
+  // The garden is kept on top, tipped toward the viewer by TILT, and the
+  // planet turns about it: orientation = tip (dragged, settling back) · tilt · yaw · align.
+  const TILT = 0.5;
+  const align = new Quaternion().setFromUnitVectors(center, new Vector3(0, 1, 0));
+  const xAxis = new Vector3(1, 0, 0), yAxis = new Vector3(0, 1, 0);
+  let yaw = 0, yawSpeed = 0, tip = 0;
+  const orientation = new Quaternion();
+  const orient = () => orientation.setFromAxisAngle(xAxis, TILT + tip)
+    .multiply(new Quaternion().setFromAxisAngle(yAxis, yaw)).multiply(align);
+
+  // Frame the planet and the garden standing on it: the smallest ball round
+  // both, its middle moved up toward the garden by `lift`.
+  const R = meta.maximumRadius, top = R + (garden?.tallest ?? 0), spreadAngle = 1.0;
+  let lift = 0, reach = top;
+  for (let s = 0; s <= top - R; s += 0.005) {
+    const need = Math.max(R + s, top - s, Math.sqrt(top * top + s * s - 2 * s * top * Math.cos(spreadAngle)));
+    if (need < reach) { reach = need; lift = s; }
+  }
+  const aim = new Vector3(0, Math.cos(TILT), Math.sin(TILT)).multiplyScalar(lift);
+
   const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
   const drift = reduceMotion ? 0 : 0.12;
   if (reduceMotion) uniforms.uSway.value = 0;
-  // Sprout from the spot facing the viewer each time round.
   const CYCLE = 30;
-  const reseed = () => flora.uSeed.value.set(0, 0.25, 1).normalize().applyQuaternion(orientation.clone().invert());
-  reseed();
 
   function resize() {
     const { clientWidth: w, clientHeight: h } = canvas;
@@ -300,34 +314,29 @@ export async function createPlanetViewer({ canvas, onReady }: { canvas: HTMLCanv
     camera.fov = w >= h ? meta.fieldOfView : (2 * Math.atan(Math.tan((meta.fieldOfView * Math.PI) / 360) * (h / w)) * 180) / Math.PI;
     camera.updateProjectionMatrix();
     // The narrower of the two view angles is meta.fieldOfView: back off till a ball of `reach` fits in it, with a little air.
-    camera.position.set(0, 0, (reach * 1.03) / Math.sin((meta.fieldOfView * Math.PI) / 360));
+    camera.position.copy(aim).add(new Vector3(0, 0, (reach * 1.03) / Math.sin((meta.fieldOfView * Math.PI) / 360)));
+    camera.lookAt(aim);
   }
   const resizeObserver = new ResizeObserver(resize);
   resizeObserver.observe(canvas);
   resize();
 
-  // Drag to spin it like a globe (any direction), with momentum.
-  const spin = new Vector3();
+  // Drag sideways to spin it about the garden, with momentum; up or down to tip it, settling back after.
   let dragging = false, last = { x: 0, y: 0 }, pointerId: number | null = null;
-  const turnBy = (dx: number, dy: number) => {
-    const angle = Math.hypot(dx, dy) * 0.008;
-    if (angle < 1e-6) return;
-    const axis = new Vector3(dy, dx, 0).normalize();
-    orientation.premultiply(new Quaternion().setFromAxisAngle(axis, angle));
-  };
   const onDown = (e: PointerEvent) => {
     dragging = true;
     pointerId = e.pointerId;
     last = { x: e.clientX, y: e.clientY };
-    spin.set(0, 0, 0);
+    yawSpeed = 0;
     canvas.setPointerCapture(e.pointerId);
   };
   const onMove = (e: PointerEvent) => {
     if (!dragging || e.pointerId !== pointerId) return;
     const dx = e.clientX - last.x, dy = e.clientY - last.y;
     last = { x: e.clientX, y: e.clientY };
-    turnBy(dx, dy);
-    spin.set(dx, dy, 0).multiplyScalar(60).clampLength(0, 900);
+    yaw += dx * 0.008;
+    tip = Math.max(-0.6, Math.min(0.6, tip + dy * 0.008));
+    yawSpeed = Math.max(-7, Math.min(7, dx * 0.008 * 60));
   };
   const onUp = (e: PointerEvent) => {
     if (e.pointerId !== pointerId) return;
@@ -357,18 +366,13 @@ export async function createPlanetViewer({ canvas, onReady }: { canvas: HTMLCanv
     if (!reduceMotion) time += seconds;
     uniforms.uTime.value = time;
     if (reduceMotion) flora.uCycle.value = 0.55;
-    else {
-      const cycle = (time / CYCLE) % 1;
-      if (cycle < flora.uCycle.value) reseed();
-      flora.uCycle.value = cycle;
-    }
+    else flora.uCycle.value = (time / CYCLE) % 1;
     if (!dragging) {
-      turnBy(spin.x * seconds, spin.y * seconds);
-      spin.multiplyScalar(Math.pow(0.05, seconds));
-      // The slow turn of its own, about the planet's tipped axis.
-      orientation.multiply(new Quaternion().setFromAxisAngle(new Vector3(0, 1, 0), drift * seconds));
+      yaw += (yawSpeed + drift) * seconds;
+      yawSpeed *= Math.pow(0.05, seconds);
+      tip *= Math.pow(0.12, seconds);
     }
-    planet.quaternion.copy(orientation);
+    planet.quaternion.copy(orient());
     renderer.render(scene, camera);
     if (!ready) {
       ready = true;
